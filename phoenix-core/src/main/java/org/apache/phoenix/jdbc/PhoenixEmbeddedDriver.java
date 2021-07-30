@@ -33,7 +33,6 @@ import java.util.logging.Logger;
 
 import javax.annotation.concurrent.Immutable;
 
-import jdk.internal.joptsimple.internal.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.security.User;
@@ -508,7 +507,7 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             final Configuration config =
                     HBaseFactoryProvider.getConfigurationFactory().getConfiguration();
             String registryImpl = config.get(HConstants.REGISTRY_IMPL_CONF_KEY);
-            if (!Strings.isNullOrEmpty(registryImpl)) {
+            if (registryImpl != null) {
                 this.useMasterRegistry = registryImpl.equals("org.apache.hadoop.hbase.client.MasterRegistry");
             }
 
