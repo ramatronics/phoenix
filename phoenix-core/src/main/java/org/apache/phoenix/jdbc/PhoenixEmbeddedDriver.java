@@ -33,6 +33,7 @@ import java.util.logging.Logger;
 
 import javax.annotation.concurrent.Immutable;
 
+import jdk.internal.joptsimple.internal.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.security.User;
@@ -486,6 +487,7 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
         private final String rootNode;
         private final String zookeeperQuorum;
         private final boolean isConnectionless;
+        private boolean useMasterRegistry = false;
         private final String principal;
         private final String keytab;
         private final User user;
@@ -502,6 +504,14 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             } catch (IOException e) {
                 throw new RuntimeException("Couldn't get the current user!!", e);
             }
+
+            final Configuration config =
+                    HBaseFactoryProvider.getConfigurationFactory().getConfiguration();
+            String registryImpl = config.get(HConstants.REGISTRY_IMPL_CONF_KEY);
+            if (!Strings.isNullOrEmpty(registryImpl)) {
+                this.useMasterRegistry = registryImpl.equals("org.apache.hadoop.hbase.client.MasterRegistry");
+            }
+
             if (null == this.user) {
                 throw new RuntimeException("Acquired null user which should never happen");
             }
@@ -520,17 +530,27 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             this(other.zookeeperQuorum, other.port, other.rootNode, other.principal, other.keytab);
         }
 
+
         public ReadOnlyProps asProps() {
             Map<String, String> connectionProps = Maps.newHashMapWithExpectedSize(3);
             if (getZookeeperQuorum() != null) {
-                connectionProps.put(QueryServices.ZOOKEEPER_QUORUM_ATTRIB, getZookeeperQuorum());
+                if (!this.useMasterRegistry) {
+                    connectionProps.put(QueryServices.ZOOKEEPER_QUORUM_ATTRIB, getZookeeperQuorum());
+                } else {
+                    connectionProps.put(QueryServices.HBASE_MASTERS, getZookeeperQuorum());
+                }
             }
-            if (getPort() != null) {
-                connectionProps.put(QueryServices.ZOOKEEPER_PORT_ATTRIB, getPort().toString());
+
+            if (!this.useMasterRegistry) {
+                if (getPort() != null) {
+                    connectionProps.put(QueryServices.ZOOKEEPER_PORT_ATTRIB, getPort().toString());
+                }
+
+                if (getRootNode() != null) {
+                    connectionProps.put(QueryServices.ZOOKEEPER_ROOT_NODE_ATTRIB, getRootNode());
+                }
             }
-            if (getRootNode() != null) {
-                connectionProps.put(QueryServices.ZOOKEEPER_ROOT_NODE_ATTRIB, getRootNode());
-            }
+
             if (getPrincipal() != null && getKeytab() != null) {
                 connectionProps.put(QueryServices.HBASE_CLIENT_PRINCIPAL, getPrincipal());
                 connectionProps.put(QueryServices.HBASE_CLIENT_KEYTAB, getKeytab());
