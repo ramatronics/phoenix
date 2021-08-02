@@ -25,12 +25,15 @@ import static org.junit.Assert.assertTrue;
 import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.phoenix.exception.SQLExceptionCode;
 import org.apache.phoenix.jdbc.PhoenixEmbeddedDriver.ConnectionInfo;
 import org.apache.phoenix.query.HBaseFactoryProvider;
+import org.apache.phoenix.util.ReadOnlyProps;
 import org.junit.Test;
 
 public class PhoenixEmbeddedDriverTest {
@@ -153,7 +156,25 @@ public class PhoenixEmbeddedDriverTest {
             }
         }
     }
-    
+
+    @Test
+    public void testBootstrappedConnections() throws SQLException {
+        String[] urls = new String[] {
+                "jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
+                "jdbc:phoenix:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
+                "jdbc:phoenix+bigtable:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
+                "jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:user/principal:/user.keytab;test=false",
+        };
+        List<ConnectionInfo> connInfos = new ArrayList<>();
+        List<ReadOnlyProps> rops = new ArrayList<>();
+        for (String url : urls) {
+            ConnectionInfo ci = ConnectionInfo.create(url);
+            connInfos.add(ci);
+            rops.add(ci.asProps());
+        }
+        int x = 0;
+
+    }
     @Test
     public void testNotAccept() throws Exception {
         Driver driver = new PhoenixDriver();

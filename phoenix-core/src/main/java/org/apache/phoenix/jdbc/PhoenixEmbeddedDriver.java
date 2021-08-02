@@ -611,6 +611,7 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             result = prime * result + ((rootNode == null) ? 0 : rootNode.hashCode());
             result = prime * result + ((principal == null) ? 0 : principal.hashCode());
             result = prime * result + ((keytab == null) ? 0 : keytab.hashCode());
+            result = prime * result + ((bootstrap == null) ? 0 : bootstrap.hashCode());
             // `user` is guaranteed to be non-null
             result = prime * result + user.hashCode();
             return result;
@@ -639,6 +640,9 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             if (keytab == null) {
                 if (other.keytab != null) return false;
             } else if (!keytab.equals(other.keytab)) return false;
+            if (bootstrap == null) {
+                if (other.bootstrap != null) return false;
+            } else if (!bootstrap.equals(other.bootstrap)) return false;
             return true;
         }
         
