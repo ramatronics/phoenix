@@ -17,22 +17,6 @@
  */
 package org.apache.phoenix.jdbc;
 
-import static org.apache.phoenix.util.PhoenixRuntime.PHOENIX_TEST_DRIVER_URL_PARAM;
-
-import java.io.IOException;
-import java.sql.Connection;
-import java.sql.Driver;
-import java.sql.DriverPropertyInfo;
-import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
-import java.util.Map;
-import java.util.Properties;
-import java.util.StringTokenizer;
-import java.util.Map.Entry;
-import java.util.logging.Logger;
-
-import javax.annotation.concurrent.Immutable;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.security.User;
@@ -44,14 +28,22 @@ import org.apache.phoenix.exception.SQLExceptionInfo;
 import org.apache.phoenix.query.ConnectionQueryServices;
 import org.apache.phoenix.query.HBaseFactoryProvider;
 import org.apache.phoenix.query.QueryServices;
+import org.apache.phoenix.thirdparty.com.google.common.collect.ImmutableMap;
+import org.apache.phoenix.thirdparty.com.google.common.collect.Maps;
 import org.apache.phoenix.util.PhoenixRuntime;
 import org.apache.phoenix.util.PropertiesUtil;
 import org.apache.phoenix.util.ReadOnlyProps;
 import org.apache.phoenix.util.SQLCloseable;
 import org.slf4j.LoggerFactory;
 
-import org.apache.phoenix.thirdparty.com.google.common.collect.ImmutableMap;
-import org.apache.phoenix.thirdparty.com.google.common.collect.Maps;
+import javax.annotation.concurrent.Immutable;
+import java.io.IOException;
+import java.sql.*;
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.logging.Logger;
+
+import static org.apache.phoenix.util.PhoenixRuntime.PHOENIX_TEST_DRIVER_URL_PARAM;
 
 
 
@@ -225,7 +217,7 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             }
             return false;
         }
-        
+
         public static ConnectionInfo create(String url) throws SQLException {
             url = url == null ? "" : url;
             if (url.isEmpty() || url.equalsIgnoreCase("jdbc:phoenix:")
@@ -235,6 +227,14 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             url = url.startsWith(PhoenixRuntime.JDBC_PROTOCOL)
                     ? url.substring(PhoenixRuntime.JDBC_PROTOCOL.length())
                     : PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR + url;
+
+            String bootstrap = PhoenixRuntime.BOOTSTRAP_ZK;
+            if (url.startsWith(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SPECIFIER))) {
+                String firstToken = url.split(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR))[0];
+                bootstrap = firstToken.replace(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SPECIFIER), "");
+                url = url.substring(firstToken.length());
+            }
+
             StringTokenizer tokenizer = new StringTokenizer(url, DELIMITERS, true);
             int nTokens = 0;
             String[] tokens = new String[5];
@@ -304,9 +304,18 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
                     }
                 }
             }
-            return new ConnectionInfo(quorum,port,rootNode, principal, keytabFile);
+            return new ConnectionInfo(quorum,port,rootNode, principal, keytabFile, bootstrap);
         }
-        
+        private final String bootstrap;
+
+        public boolean isZkBootstrap() {
+            return this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_ZK);
+        }
+
+        public boolean isHRPCBootstrap() {
+            return this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_HRPC);
+        }
+
         public ConnectionInfo normalize(ReadOnlyProps props, Properties info) throws SQLException {
             String zookeeperQuorum = this.getZookeeperQuorum();
             Integer port = this.getPort();
@@ -481,17 +490,19 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             }
             return config;
         }
-        
+
         private final Integer port;
         private final String rootNode;
         private final String zookeeperQuorum;
         private final boolean isConnectionless;
-        private boolean useMasterRegistry = false;
+        public ConnectionInfo(String zookeeperQuorum, Integer port, String rootNode, String principal, String keytab) {
+            this(zookeeperQuorum, port, rootNode, principal, keytab, PhoenixRuntime.BOOTSTRAP_ZK);
+        }
         private final String principal;
         private final String keytab;
         private final User user;
-        
-        public ConnectionInfo(String zookeeperQuorum, Integer port, String rootNode, String principal, String keytab) {
+
+        public ConnectionInfo(String zookeeperQuorum, Integer port, String rootNode, String principal, String keytab, String bootstrap) {
             this.zookeeperQuorum = zookeeperQuorum;
             this.port = port;
             this.rootNode = rootNode;
@@ -504,17 +515,12 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
                 throw new RuntimeException("Couldn't get the current user!!", e);
             }
 
-            final Configuration config =
-                    HBaseFactoryProvider.getConfigurationFactory().getConfiguration();
-            String registryImpl = config.get(HConstants.REGISTRY_IMPL_CONF_KEY);
-            if (registryImpl != null) {
-                this.useMasterRegistry = registryImpl.equals("org.apache.hadoop.hbase.client.MasterRegistry");
-            }
-
+            this.bootstrap = bootstrap;
             if (null == this.user) {
                 throw new RuntimeException("Acquired null user which should never happen");
             }
         }
+
         
         public ConnectionInfo(String zookeeperQuorum, Integer port, String rootNode) {
         	this(zookeeperQuorum, port, rootNode, null, null);
@@ -529,18 +535,28 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             this(other.zookeeperQuorum, other.port, other.rootNode, other.principal, other.keytab);
         }
 
-
         public ReadOnlyProps asProps() {
             Map<String, String> connectionProps = Maps.newHashMapWithExpectedSize(3);
             if (getZookeeperQuorum() != null) {
-                if (!this.useMasterRegistry) {
+                if (this.isZkBootstrap()) {
                     connectionProps.put(QueryServices.ZOOKEEPER_QUORUM_ATTRIB, getZookeeperQuorum());
-                } else {
-                    connectionProps.put(QueryServices.HBASE_MASTERS, getZookeeperQuorum());
+                } else if (this.isHRPCBootstrap()) {
+                    String[] masters = getZookeeperQuorum().split(",");
+
+                    String masterPort = PhoenixRuntime.BOOTSTRAP_HRPC_DEFAULT_HMASTER_PORT;
+                    if (getPort() != null) {
+                        masterPort = getPort().toString();
+                    }
+
+                    List<String> masterList = new ArrayList<>();
+                    for (String m : masters) {
+                        masterList.add(m + ":" + masterPort);
+                    }
+                    connectionProps.put(QueryServices.HBASE_MASTERS, String.join(",", masterList));
                 }
             }
 
-            if (!this.useMasterRegistry) {
+            if (this.isZkBootstrap()) {
                 if (getPort() != null) {
                     connectionProps.put(QueryServices.ZOOKEEPER_PORT_ATTRIB, getPort().toString());
                 }

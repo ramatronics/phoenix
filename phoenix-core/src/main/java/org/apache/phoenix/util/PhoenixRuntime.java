@@ -121,6 +121,8 @@ public class PhoenixRuntime {
     public final static String JDBC_THIN_PROTOCOL = "jdbc:phoenix:thin";
     public final static char JDBC_PROTOCOL_TERMINATOR = ';';
     public final static char JDBC_PROTOCOL_SEPARATOR = ':';
+    public final static char JDBC_PROTOCOL_SPECIFIER = '+';
+
 
     @Deprecated
     public final static String EMBEDDED_JDBC_PROTOCOL = PhoenixRuntime.JDBC_PROTOCOL + PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR;
@@ -220,6 +222,14 @@ public class PhoenixRuntime {
             CONSISTENCY_ATTRIB,
             REQUEST_METRIC_ATTRIB,
             };
+
+    /**
+     * This determines what to bootstrap the connection with
+     */
+
+    public final static String BOOTSTRAP_ZK = "zk";
+    public final static String BOOTSTRAP_HRPC = "hrpc";
+    public final static String BOOTSTRAP_HRPC_DEFAULT_HMASTER_PORT = "60010";
 
     /**
      * Use this as the zookeeper quorum name to have a connection-less connection. This enables
