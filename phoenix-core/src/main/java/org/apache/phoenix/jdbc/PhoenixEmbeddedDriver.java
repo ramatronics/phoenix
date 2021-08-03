@@ -17,6 +17,7 @@
  */
 package org.apache.phoenix.jdbc;
 
+import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.security.User;
@@ -191,15 +192,20 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
         private static final Object KERBEROS_LOGIN_LOCK = new Object();
         private static final char WINDOWS_SEPARATOR_CHAR = '\\';
         private static final String REALM_EQUIVALENCY_WARNING_MSG = "Provided principal does not contan a realm and the default realm cannot be determined. Ignoring realm equivalency check.";
+
         private static SQLException getMalFormedUrlException(String url) {
             return new SQLExceptionInfo.Builder(SQLExceptionCode.MALFORMED_CONNECTION_URL)
-            .setMessage(url).build().buildException();
+                    .setMessage(url).build().buildException();
         }
-        
-		public String getZookeeperConnectionString() {
-			return getZookeeperQuorum() + ":" + getPort();
-		}
-        
+
+        private static SQLException getMalFormedUrlException(String message, String url) {
+            return getMalFormedUrlException(message + "\n" + url);
+        }
+
+        public String getZookeeperConnectionString() {
+            return getZookeeperQuorum() + ":" + getPort();
+        }
+
         /**
          * Detect url with quorum:1,quorum:2 as HBase does not handle different port numbers
          * for different quorum hostnames.
@@ -228,10 +234,18 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
                     ? url.substring(PhoenixRuntime.JDBC_PROTOCOL.length())
                     : PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR + url;
 
-            String bootstrap = PhoenixRuntime.BOOTSTRAP_ZK;
+            String bootstrap = null;
             if (url.startsWith(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SPECIFIER))) {
                 String firstToken = url.split(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SEPARATOR))[0];
                 bootstrap = firstToken.replace(String.valueOf(PhoenixRuntime.JDBC_PROTOCOL_SPECIFIER), "");
+                if (Strings.isNullOrEmpty(bootstrap)) {
+                    throw getMalFormedUrlException(url);
+                }
+
+                if (!PhoenixRuntime.BOOTSTRAPPABLES.contains(bootstrap)) {
+                    throw getMalFormedUrlException("Invalid bootstrap connector specified: " + bootstrap, url);
+                }
+
                 url = url.substring(firstToken.length());
             }
 
@@ -306,14 +320,15 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
             }
             return new ConnectionInfo(quorum,port,rootNode, principal, keytabFile, bootstrap);
         }
+
         private final String bootstrap;
 
         public boolean isZkBootstrap() {
-            return this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_ZK);
+            return Strings.isNullOrEmpty(this.bootstrap) || this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_ZK);
         }
 
         public boolean isHRPCBootstrap() {
-            return this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_HRPC);
+            return !Strings.isNullOrEmpty(this.bootstrap) && this.bootstrap.equalsIgnoreCase(PhoenixRuntime.BOOTSTRAP_HRPC);
         }
 
         public ConnectionInfo normalize(ReadOnlyProps props, Properties info) throws SQLException {
@@ -496,7 +511,7 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
         private final String zookeeperQuorum;
         private final boolean isConnectionless;
         public ConnectionInfo(String zookeeperQuorum, Integer port, String rootNode, String principal, String keytab) {
-            this(zookeeperQuorum, port, rootNode, principal, keytab, PhoenixRuntime.BOOTSTRAP_ZK);
+            this(zookeeperQuorum, port, rootNode, principal, keytab, null);
         }
         private final String principal;
         private final String keytab;
@@ -537,26 +552,26 @@ public abstract class PhoenixEmbeddedDriver implements Driver, SQLCloseable {
 
         public ReadOnlyProps asProps() {
             Map<String, String> connectionProps = Maps.newHashMapWithExpectedSize(3);
-            if (getZookeeperQuorum() != null) {
-                if (this.isZkBootstrap()) {
-                    connectionProps.put(QueryServices.ZOOKEEPER_QUORUM_ATTRIB, getZookeeperQuorum());
-                } else if (this.isHRPCBootstrap()) {
-                    String[] masters = getZookeeperQuorum().split(",");
+            if (this.isHRPCBootstrap() && getZookeeperQuorum() != null) {
+                final String[] masters = getZookeeperQuorum().split(",");
 
-                    String masterPort = PhoenixRuntime.BOOTSTRAP_HRPC_DEFAULT_HMASTER_PORT;
-                    if (getPort() != null) {
-                        masterPort = getPort().toString();
-                    }
-
-                    List<String> masterList = new ArrayList<>();
-                    for (String m : masters) {
-                        masterList.add(m + ":" + masterPort);
-                    }
-                    connectionProps.put(QueryServices.HBASE_MASTERS, String.join(",", masterList));
+                String masterPort = PhoenixRuntime.BOOTSTRAP_HRPC_DEFAULT_HMASTER_PORT;
+                if (getPort() != null) {
+                    masterPort = getPort().toString();
                 }
+
+                final List<String> masterList = new ArrayList<>();
+                for (final String m : masters) {
+                    masterList.add(m + ":" + masterPort);
+                }
+                connectionProps.put(QueryServices.HBASE_MASTERS, String.join(",", masterList));
             }
 
             if (this.isZkBootstrap()) {
+                if (getZookeeperQuorum() != null) {
+                    connectionProps.put(QueryServices.ZOOKEEPER_QUORUM_ATTRIB, getZookeeperQuorum());
+                }
+
                 if (getPort() != null) {
                     connectionProps.put(QueryServices.ZOOKEEPER_PORT_ATTRIB, getPort().toString());
                 }

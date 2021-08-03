@@ -44,6 +44,7 @@ import java.util.TreeSet;
 
 import javax.annotation.Nullable;
 
+import com.google.common.collect.Sets;
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.phoenix.monitoring.PhoenixTableMetric;
 import org.apache.phoenix.monitoring.TableMetricsManager;
@@ -230,6 +231,7 @@ public class PhoenixRuntime {
     public final static String BOOTSTRAP_ZK = "zk";
     public final static String BOOTSTRAP_HRPC = "hrpc";
     public final static String BOOTSTRAP_HRPC_DEFAULT_HMASTER_PORT = "60010";
+    public final static Set<String> BOOTSTRAPPABLES = Sets.newHashSet(BOOTSTRAP_HRPC, BOOTSTRAP_ZK);
 
     /**
      * Use this as the zookeeper quorum name to have a connection-less connection. This enables

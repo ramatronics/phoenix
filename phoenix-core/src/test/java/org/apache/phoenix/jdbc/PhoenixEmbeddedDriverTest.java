@@ -158,23 +158,38 @@ public class PhoenixEmbeddedDriverTest {
     }
 
     @Test
-    public void testBootstrappedConnections() throws SQLException {
-        String[] urls = new String[] {
-                "jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
-                "jdbc:phoenix:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
-                "jdbc:phoenix+bigtable:hostname1,hostname2,hostname3:60010:user/principal:/user.keytab;test=false",
-                "jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:user/principal:/user.keytab;test=false",
-        };
-        List<ConnectionInfo> connInfos = new ArrayList<>();
-        List<ReadOnlyProps> rops = new ArrayList<>();
-        for (String url : urls) {
-            ConnectionInfo ci = ConnectionInfo.create(url);
-            connInfos.add(ci);
-            rops.add(ci.asProps());
-        }
-        int x = 0;
+    public void testConnectorBootstrap() throws SQLException {
+        // HRPC
+        ConnectionInfo c1 = ConnectionInfo.create("jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:90210:user/principal:/user.keytab;test=false");
+        ReadOnlyProps rop1 = c1.asProps();
+        assertEquals("hostname1:90210,hostname2:90210,hostname3:90210", rop1.get("hbase.masters"));
+        assertTrue(c1.isHRPCBootstrap());
+        assertFalse(c1.isZkBootstrap());
 
+
+        ConnectionInfo c2 = ConnectionInfo.create("jdbc:phoenix+hrpc:hostname1,hostname2,hostname3:user/principal:/user.keytab;test=false");
+        ReadOnlyProps rop2 = c2.asProps();
+        assertEquals("hostname1:60010,hostname2:60010,hostname3:60010", rop2.get("hbase.masters"));
+        assertTrue(c2.isHRPCBootstrap());
+        assertFalse(c2.isZkBootstrap());
+
+
+        // ZK
+        String[] jdbcUrls = new String[] {
+                "jdbc:phoenix+zk:hostname1,hostname2,hostname3:2181:user/principal:/user.keytab;test=false",
+                "jdbc:phoenix:hostname1,hostname2,hostname3:2181:user/principal:/user.keytab;test=false"
+        };
+
+        for (final String c : jdbcUrls) {
+            ConnectionInfo connInfo = ConnectionInfo.create(c);
+            ReadOnlyProps readOnlyProps = connInfo.asProps();
+            assertEquals("hostname1,hostname2,hostname3", readOnlyProps.get("hbase.zookeeper.quorum"));
+            assertEquals("2181", readOnlyProps.get("hbase.zookeeper.property.clientPort"));
+            assertFalse(connInfo.isHRPCBootstrap());
+            assertTrue(connInfo.isZkBootstrap());
+        }
     }
+
     @Test
     public void testNotAccept() throws Exception {
         Driver driver = new PhoenixDriver();
